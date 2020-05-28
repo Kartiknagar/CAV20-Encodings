@@ -1,0 +1,226 @@
+****Herlihy-Wing Queue
+
+{tail:Int, items:[Val]}
+Initial State : tail=0, For all i.items[i]=NULL
+Enq(v)
+//  b = Fetch-And-Add (tail,1);  //returns current value of tail and increments it by 1
+  do
+  {
+E1:    b = tail;
+E2:  } while(!CAS(tail, b, b+1));
+E3:  items[b]=v;
+
+Deq(q)
+  while (true)
+D1:    r = tail-1;
+    for (i = 0 to r)
+    {
+//      t = Set-And-Get(items[i],NULL) //Atomically Sets items[i] to NULL and returns its value
+      while (true)
+      {
+        t = items[i];
+        if (t == NULL)
+          break;
+D2:        else if (CAS(items[i], t, NULL))
+          break;
+          }
+      if (t != NULL)
+        return t
+    }
+
+****Micheal and Scott Queue [With Locks] (Fig 10.7, 10.8 in HS)
+
+struct Node
+{
+  Val v;
+  Int next;
+}
+{head:Int, tail:Int, items:[Node], enqlock, deqlock:Lock}
+Initial State : head=tail=0, items[0].next=NULL
+Enq(v)
+E1:  while(CAS(enqlock, 0, 1));
+  n = New(Node);
+E2:  n.v = v;
+E3:  n.next = NULL:
+E4:  l = tail;
+E5:  items[l].next = n;
+E6:  tail = n;
+E7:  enqlock = 0;
+
+Deq()
+D1:  while(CAS(deqlock, 0, 1));
+D2:  h = head;
+D3:  n = items[h].next
+  if (n == NULL)
+  {
+D4:    deqlock = 0;
+    return EMPTY;
+  }
+  else
+  {
+D5:  result = items[n].v;
+D6:     head = n;
+D7:    deqlock = 0;
+    return result;
+  }
+
+****Micheal and Scott Queue [Lock-free] (Fig 10.9, 10.10, 10.11 in HS)
+struct Node
+{
+  Val v;
+  Int next;
+}
+{head:Int, tail:Int, items:[Node], }
+Initial State : head=tail=0, items[0].next=NULL
+
+Enq(v)
+  while(true)
+  {
+    n = New(node);
+E1:    n.v = v;
+E2:    last = tail;
+E3:    next = items[last].next;
+E4:    if (last == tail)
+    {
+      if (next == NULL)
+      {
+E5:        if (CAS(items[last].next, next, n))  //CAS(loc,old,new) atomically checks if value at loc is old, if yes changes to new
+        {
+E6:          CAS(tail, last, n);
+          return;
+        }
+      }
+      else
+      {
+E7:        CAS(tail, last, next)
+      }
+    }
+  }
+
+Deq()
+  while(true)
+  {
+D1:    first = head;
+D2:    last = tail;
+D3:    next = items[first].next;
+D4:    if (first == head)
+    {
+      if (first == last)
+      {
+        if (next == NULL)
+          return EMPTY;
+D5:        CAS(tail, last, next);
+      }
+      else
+      {
+          if (next == NULL)
+            return EMPTY;
+          else
+          {
+D6:        retval = items[next].v;
+D7:        if (CAS(head, first, next))
+          return retval;
+          }
+      }
+    }
+  }
+
+****Treiber Stack
+struct Node
+{
+  Val v;
+  Int next;
+}
+{head:Int, items:[Node], }
+push(v)
+  n = New(Node);  // Provided by the data store, can be implemented using replica specific counters and distinct replica id
+E1:  items[n].v = v;
+  while(true)
+  {
+E2:    lh = head;
+E3:    items[n].next = lh;
+E4:    if (CAS (head, lh, n)) break;
+  }
+
+pop()
+  while(true)
+  {
+D1:    lh = head;
+    if (lh == NULL)
+      return EMPTY;
+D2:    lv = items[lh].v
+D3:    ln = items[lh].next;
+D4:    if (CAS (head, lh, ln))
+      return lv;
+  }
+
+****Exchanger
+struct Node
+{
+  Val first;
+  Val second;
+}
+{slot:Node, items:[Node]}
+
+exchange(v)
+S1:  s = slot;
+S2:  if (CAS (items[s].first, 0, v))
+  {
+S3:    if (CAS(items[s].second, 0, BOT))
+    {
+      return BOT;
+    }
+    else
+    {
+S4:      ev = items[s].second;
+      return ev;
+    }
+  }
+  else
+  {
+S5:    b= CAS(items[s].second, 0, v);
+    n = new(Node);
+S6:    CAS(slot, s, n);
+    if (b)
+    {
+S7:      ev = items[s].first;
+      return ev;
+    }
+    else
+      return BOT;
+  }
+
+****Elimination Stack
+push(v)
+  n = New(Node);  // Provided by the data store, can be implemented using replica specific counters and distinct replica id
+E1:  items[n].v = v;
+  while(true)
+  {
+E2:    lh = head;
+E3:    items[n].next = lh;
+E4:    if (CAS (head, lh, n))
+          return;
+       else
+        rv = exchange(k, v); //k is randomly selected
+        if (rv == POP)
+          return;
+  }
+
+pop()
+  while(true)
+  {
+D1:    lh = head;
+      if (lh == NULL)
+        return EMPTY;
+D2:    lv = items[lh].v;
+D3:    ln = items[lh].next;
+D4:    if (!CAS (head, lh, ln))
+    {
+      rv = exchange(k, POP); //k is randomly selected
+      if (rv != BOT && rv != POP)
+        return rv;
+    }
+    else
+      return lv;
+
+  }
